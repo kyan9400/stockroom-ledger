@@ -8,6 +8,10 @@ A full-stack inventory operations console for receiving, dispatching, transferri
 
 ![Stockroom Ledger inventory operations console](docs/stockroom-ledger.png)
 
+## Live demo
+
+[Open Stockroom Ledger](https://stockroom-ledger.vercel.app/) — a public sandbox with seeded inventory data. Its temporary database can reset when the Vercel container scales down; the Docker deployment below uses a persistent volume.
+
 ## Why this project exists
 
 Inventory demos are often CRUD tables with no meaningful consistency rules. Stockroom Ledger focuses on the failure cases that matter when quantities represent real goods:
