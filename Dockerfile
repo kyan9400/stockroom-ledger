@@ -1,7 +1,7 @@
 FROM node:24-alpine AS web-builder
 
 WORKDIR /build
-RUN corepack enable
+RUN npm install --global pnpm@11.19.0
 COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY frontend/ ./
@@ -45,4 +45,3 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
 
 ENV PYTHONPATH=/app/backend/src
 CMD ["uvicorn", "stockroom.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--proxy-headers"]
-
