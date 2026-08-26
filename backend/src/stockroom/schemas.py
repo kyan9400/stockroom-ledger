@@ -68,6 +68,7 @@ class Dashboard(APIModel):
     locations: list[Location]
     items: list[InventoryItem]
     movements: list[Movement]
+    cycle_counts: list[CycleCount]
 
 
 class MovementCreate(APIModel):
@@ -99,4 +100,38 @@ class MovementCreate(APIModel):
 
 class MovementReceipt(APIModel):
     movement: Movement
+    replayed: bool
+
+
+class CycleCount(APIModel):
+    id: str
+    product_id: str
+    product_name: str
+    location_id: str
+    location_name: str
+    previous_quantity: int
+    counted_quantity: int
+    variance: int
+    reason: str
+    actor: str
+    created_at: datetime
+
+
+class CycleCountCreate(APIModel):
+    product_id: str = Field(min_length=1, max_length=80)
+    location_id: str = Field(min_length=1, max_length=80)
+    counted_quantity: int = Field(ge=0, le=1_000_000)
+    reason: str = Field(min_length=3, max_length=180)
+    actor: str = Field(min_length=2, max_length=80)
+    expected_version: int = Field(ge=1)
+
+    @model_validator(mode="after")
+    def validate_actor(self) -> CycleCountCreate:
+        if not re.fullmatch(r"[A-Za-z][A-Za-z .'-]{1,79}", self.actor):
+            raise ValueError("actor must be a readable name")
+        return self
+
+
+class CycleCountReceipt(APIModel):
+    cycle_count: CycleCount
     replayed: bool

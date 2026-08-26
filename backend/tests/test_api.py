@@ -67,6 +67,60 @@ def test_transfer_is_atomic_and_idempotent(tmp_path: Path) -> None:
     assert (north["quantity"], retail["quantity"]) == (37, 14)
 
 
+def cycle_count_payload() -> dict[str, object]:
+    return {
+        "productId": "prd-lamp",
+        "locationId": "loc-north",
+        "countedQuantity": 39,
+        "reason": "Monthly shelf count",
+        "actor": "Hassan Ak",
+        "expectedVersion": 1,
+    }
+
+
+def test_cycle_count_reconciles_balance_and_preserves_variance(tmp_path: Path) -> None:
+    with client(tmp_path) as app:
+        created = app.post(
+            "/api/cycle-counts",
+            json=cycle_count_payload(),
+            headers={"Idempotency-Key": "cycle-count-test-001"},
+        )
+        replayed = app.post(
+            "/api/cycle-counts",
+            json=cycle_count_payload(),
+            headers={"Idempotency-Key": "cycle-count-test-001"},
+        )
+        dashboard = app.get("/api/dashboard").json()
+
+    assert created.status_code == 201
+    assert created.json()["cycleCount"]["previousQuantity"] == 42
+    assert created.json()["cycleCount"]["countedQuantity"] == 39
+    assert created.json()["cycleCount"]["variance"] == -3
+    assert replayed.status_code == 200
+    assert replayed.json()["replayed"] is True
+    lamp = next(item for item in dashboard["items"] if item["id"] == "prd-lamp")
+    north = next(balance for balance in lamp["balances"] if balance["locationId"] == "loc-north")
+    assert (north["quantity"], north["version"]) == (39, 2)
+    assert dashboard["cycleCounts"][0]["reason"] == "Monthly shelf count"
+
+
+def test_stale_cycle_count_does_not_change_inventory(tmp_path: Path) -> None:
+    payload = cycle_count_payload() | {"expectedVersion": 99}
+    with client(tmp_path) as app:
+        response = app.post(
+            "/api/cycle-counts",
+            json=payload,
+            headers={"Idempotency-Key": "cycle-count-test-002"},
+        )
+        dashboard = app.get("/api/dashboard").json()
+
+    assert response.status_code == 409
+    lamp = next(item for item in dashboard["items"] if item["id"] == "prd-lamp")
+    north = next(balance for balance in lamp["balances"] if balance["locationId"] == "loc-north")
+    assert (north["quantity"], north["version"]) == (42, 1)
+    assert dashboard["cycleCounts"] == []
+
+
 def test_insufficient_stock_rolls_back(tmp_path: Path) -> None:
     payload = transfer_payload() | {"quantity": 500}
     with client(tmp_path) as app:

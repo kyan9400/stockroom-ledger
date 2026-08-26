@@ -8,6 +8,9 @@ from fastapi import HTTPException, status
 
 from stockroom.database import Database
 from stockroom.schemas import (
+    CycleCount,
+    CycleCountCreate,
+    CycleCountReceipt,
     Dashboard,
     InventoryItem,
     Location,
@@ -27,6 +30,16 @@ FROM movement AS m
 JOIN product AS p ON p.id = m.product_id
 LEFT JOIN location AS source ON source.id = m.from_location_id
 LEFT JOIN location AS destination ON destination.id = m.to_location_id
+"""
+
+CYCLE_COUNT_SELECT = """
+SELECT c.id, c.product_id, p.name AS product_name,
+       c.location_id, l.name AS location_name,
+       c.previous_quantity, c.counted_quantity, c.variance,
+       c.reason, c.actor, c.created_at
+FROM cycle_count AS c
+JOIN product AS p ON p.id = c.product_id
+JOIN location AS l ON l.id = c.location_id
 """
 
 
@@ -61,6 +74,12 @@ async def dashboard(database: Database) -> Dashboard:
                 MOVEMENT_SELECT + " ORDER BY m.created_at DESC LIMIT 40"
             )
         ]
+        cycle_counts = [
+            CycleCount.model_validate(dict(row))
+            async for row in await connection.execute(
+                CYCLE_COUNT_SELECT + " ORDER BY c.created_at DESC LIMIT 40"
+            )
+        ]
 
     balances_by_product: dict[str, list[LocationBalance]] = {}
     for row in balance_rows:
@@ -93,6 +112,7 @@ async def dashboard(database: Database) -> Dashboard:
         locations=locations,
         items=items,
         movements=movements,
+        cycle_counts=cycle_counts,
     )
 
 
@@ -200,3 +220,65 @@ async def record_movement(
         if created is None:
             raise RuntimeError("created movement could not be read")
         return MovementReceipt(movement=_movement(created), replayed=False)
+
+
+async def record_cycle_count(
+    database: Database,
+    command: CycleCountCreate,
+    idempotency_key: str,
+) -> CycleCountReceipt:
+    async with database.connect() as connection:
+        await connection.execute("BEGIN IMMEDIATE")
+        try:
+            cursor = await connection.execute(
+                CYCLE_COUNT_SELECT + " WHERE c.idempotency_key = ?",
+                (idempotency_key,),
+            )
+            existing = await cursor.fetchone()
+            if existing is not None:
+                await connection.rollback()
+                return CycleCountReceipt(
+                    cycle_count=CycleCount.model_validate(dict(existing)), replayed=True
+                )
+
+            balance = await _require_balance(connection, command.product_id, command.location_id)
+            _check_version(balance["version"], command.expected_version)
+            variance = command.counted_quantity - balance["quantity"]
+            await connection.execute(
+                "UPDATE balance SET quantity = ?, version = version + 1 "
+                "WHERE product_id = ? AND location_id = ?",
+                (command.counted_quantity, command.product_id, command.location_id),
+            )
+
+            count_id = f"cnt-{uuid4().hex[:12]}"
+            created_at = datetime.now(UTC).isoformat()
+            await connection.execute(
+                "INSERT INTO cycle_count "
+                "(id, product_id, location_id, previous_quantity, counted_quantity, variance, "
+                "reason, actor, created_at, idempotency_key) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    count_id,
+                    command.product_id,
+                    command.location_id,
+                    balance["quantity"],
+                    command.counted_quantity,
+                    variance,
+                    command.reason,
+                    command.actor,
+                    created_at,
+                    idempotency_key,
+                ),
+            )
+            await connection.commit()
+        except Exception:
+            await connection.rollback()
+            raise
+
+        cursor = await connection.execute(CYCLE_COUNT_SELECT + " WHERE c.id = ?", (count_id,))
+        created = await cursor.fetchone()
+        if created is None:
+            raise RuntimeError("created cycle count could not be read")
+        return CycleCountReceipt(
+            cycle_count=CycleCount.model_validate(dict(created)), replayed=False
+        )

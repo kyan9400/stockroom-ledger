@@ -4,7 +4,7 @@
 [![Release](https://img.shields.io/github/v/release/kyan9400/stockroom-ledger?color=ff5a36&label=release)](https://github.com/kyan9400/stockroom-ledger/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-0f1b2d.svg)](LICENSE)
 
-A full-stack inventory operations console for receiving, dispatching, and transferring stock across locations without losing the audit trail.
+A full-stack inventory operations console for receiving, dispatching, transferring, and reconciling stock across locations without losing the audit trail.
 
 ![Stockroom Ledger inventory operations console](docs/stockroom-ledger.png)
 
@@ -15,6 +15,7 @@ Inventory demos are often CRUD tables with no meaningful consistency rules. Stoc
 - atomic multi-location transfers—both balances change or neither does;
 - idempotency keys so retried requests do not duplicate a movement;
 - optimistic version checks that reject writes from stale browser state;
+- audited cycle counts that preserve expected quantity, counted quantity, and signed variance;
 - non-negative stock constraints and bounded request validation;
 - an append-only movement ledger with actor, reason, route, and timestamp;
 - integer currency and quantity storage to avoid rounding ambiguity;
@@ -39,11 +40,12 @@ Interactive OpenAPI documentation is available at `/docs`.
 
 | Method | Route | Purpose |
 |---|---|---|
-| `GET` | `/api/dashboard` | Read metrics, inventory balances, locations, and recent movements |
+| `GET` | `/api/dashboard` | Read metrics, balances, locations, movements, and cycle counts |
 | `POST` | `/api/movements` | Commit a receipt, dispatch, or transfer |
+| `POST` | `/api/cycle-counts` | Reconcile a physical count against a versioned balance |
 | `GET` | `/healthz` | Container and process health probe |
 
-Every movement requires an `Idempotency-Key` header. A repeated key returns the original movement with `replayed: true` and does not change inventory twice.
+Every inventory mutation requires an `Idempotency-Key` header. A repeated key returns the original result with `replayed: true` and does not change inventory twice.
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/movements \
@@ -73,10 +75,10 @@ React + TypeScript
 FastAPI routes + Pydantic contracts
         │
         ▼
-transaction service ── idempotency / version / stock checks
+transaction service ── idempotency / version / stock / count checks
         │
         ▼
-SQLite WAL ── product / location / balance / movement
+SQLite WAL ── product / location / balance / movement / cycle count
 ```
 
 FastAPI serves the production frontend from the same origin, so the deployed application needs no permissive CORS policy. SQLite writes use `BEGIN IMMEDIATE` to serialize inventory mutations before validation and commit.
@@ -106,7 +108,7 @@ cd frontend && pnpm lint && pnpm test && pnpm build
 docker build -t stockroom-ledger:test .
 ```
 
-Backend tests cover the seeded dashboard, atomic transfers, idempotent retries, insufficient-stock rollback, optimistic conflicts, validation, and security headers. Frontend tests cover rendering and the complete versioned movement request.
+Backend tests cover the seeded dashboard, atomic transfers, idempotent retries, cycle-count reconciliation, stale-count rollback, insufficient stock, validation, and security headers. Frontend tests cover rendering plus complete versioned movement and count requests.
 
 ## Operations and rollback
 
@@ -123,4 +125,3 @@ curl -f http://127.0.0.1:8000/healthz
 ## License
 
 [MIT](LICENSE) © Hassan Ak
-

@@ -12,8 +12,14 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from stockroom.database import Database
-from stockroom.schemas import Dashboard, MovementCreate, MovementReceipt
-from stockroom.service import dashboard, record_movement
+from stockroom.schemas import (
+    CycleCountCreate,
+    CycleCountReceipt,
+    Dashboard,
+    MovementCreate,
+    MovementReceipt,
+)
+from stockroom.service import dashboard, record_cycle_count, record_movement
 
 mimetypes.add_type("application/javascript", ".js")
 
@@ -29,8 +35,8 @@ def create_app(database_path: str | Path | None = None) -> FastAPI:
 
     app = FastAPI(
         title="Stockroom Ledger API",
-        version="1.0.0",
-        description="Transactional inventory movements with idempotency and optimistic locking.",
+        version="1.1.0",
+        description="Transactional inventory movements and audited cycle-count reconciliation.",
         lifespan=lifespan,
     )
     app.state.database = database
@@ -69,6 +75,23 @@ def create_app(database_path: str | Path | None = None) -> FastAPI:
         db: Database = Depends(get_database),
     ) -> MovementReceipt:
         receipt = await record_movement(db, command, idempotency_key)
+        if receipt.replayed:
+            response.status_code = status.HTTP_200_OK
+        return receipt
+
+    @app.post(
+        "/api/cycle-counts",
+        response_model=CycleCountReceipt,
+        status_code=status.HTTP_201_CREATED,
+        tags=["inventory"],
+    )
+    async def create_cycle_count(
+        command: CycleCountCreate,
+        response: Response,
+        idempotency_key: str = Header(min_length=8, max_length=120, alias="Idempotency-Key"),
+        db: Database = Depends(get_database),
+    ) -> CycleCountReceipt:
+        receipt = await record_cycle_count(db, command, idempotency_key)
         if receipt.replayed:
             response.status_code = status.HTTP_200_OK
         return receipt

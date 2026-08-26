@@ -48,6 +48,22 @@ CREATE TABLE IF NOT EXISTS movement (
 
 CREATE INDEX IF NOT EXISTS movement_created_at_idx ON movement(created_at DESC);
 CREATE INDEX IF NOT EXISTS movement_product_id_idx ON movement(product_id);
+
+CREATE TABLE IF NOT EXISTS cycle_count (
+    id TEXT PRIMARY KEY,
+    product_id TEXT NOT NULL REFERENCES product(id),
+    location_id TEXT NOT NULL REFERENCES location(id),
+    previous_quantity INTEGER NOT NULL CHECK (previous_quantity >= 0),
+    counted_quantity INTEGER NOT NULL CHECK (counted_quantity >= 0),
+    variance INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL UNIQUE
+);
+
+CREATE INDEX IF NOT EXISTS cycle_count_created_at_idx ON cycle_count(created_at DESC);
+CREATE INDEX IF NOT EXISTS cycle_count_product_id_idx ON cycle_count(product_id);
 """
 
 SEED = """

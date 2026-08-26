@@ -20,6 +20,7 @@ const dashboard: Dashboard = {
     ],
   }],
   movements: [],
+  cycleCounts: [],
 }
 
 describe('Stockroom Ledger', () => {
@@ -58,6 +59,27 @@ describe('Stockroom Ledger', () => {
     expect((request.headers as Record<string, string>)['Idempotency-Key']).toContain('00000000')
     expect(JSON.parse(request.body as string)).toMatchObject({
       kind: 'transfer', quantity: 4, expectedSourceVersion: 1, expectedDestinationVersion: 1,
+    })
+  })
+
+  it('submits an audited cycle count with the loaded revision', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock
+      .mockResolvedValueOnce(new Response(JSON.stringify(dashboard), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ cycleCount: {}, replayed: false }), { status: 201 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(dashboard), { status: 200 }))
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByRole('heading', { name: /every unit/i })
+    await user.click(screen.getByRole('button', { name: /reconcile count/i }))
+    await user.clear(screen.getByLabelText('Counted quantity'))
+    await user.type(screen.getByLabelText('Counted quantity'), '40')
+    await user.click(screen.getByRole('button', { name: /commit count/i }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+    const request = fetchMock.mock.calls[1][1] as RequestInit
+    expect(JSON.parse(request.body as string)).toMatchObject({
+      productId: 'prd-lamp', locationId: 'loc-north', countedQuantity: 40, expectedVersion: 1,
     })
   })
 })

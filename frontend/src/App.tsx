@@ -7,11 +7,12 @@ import {
   Check,
   ChevronRight,
   PackagePlus,
+  ScanLine,
   Search,
   X,
 } from 'lucide-react'
-import { fetchDashboard, submitMovement } from './lib/api'
-import type { Dashboard, InventoryItem, MovementCommand, MovementKind } from './types'
+import { fetchDashboard, submitCycleCount, submitMovement } from './lib/api'
+import type { CycleCountCommand, Dashboard, InventoryItem, MovementCommand, MovementKind } from './types'
 
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
 const timestamp = new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -105,11 +106,90 @@ function MovementPanel({ dashboard, onClose, onSaved }: MovementPanelProps) {
   )
 }
 
+function CountPanel({ dashboard, onClose, onSaved }: MovementPanelProps) {
+  const initialProduct = dashboard.items[0]
+  const initialLocationId = dashboard.locations[0]?.id ?? ''
+  const [productId, setProductId] = useState(initialProduct?.id ?? '')
+  const [locationId, setLocationId] = useState(initialLocationId)
+  const [countedQuantity, setCountedQuantity] = useState(
+    initialProduct ? balanceFor(initialProduct, initialLocationId)?.quantity ?? 0 : 0,
+  )
+  const [reason, setReason] = useState('Scheduled cycle count')
+  const [actor, setActor] = useState('Hassan Ak')
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const item = dashboard.items.find((entry) => entry.id === productId)
+  const balance = item ? balanceFor(item, locationId) : undefined
+
+  const chooseProduct = (nextProductId: string) => {
+    setProductId(nextProductId)
+    const nextProduct = dashboard.items.find((entry) => entry.id === nextProductId)
+    setCountedQuantity(nextProduct ? balanceFor(nextProduct, locationId)?.quantity ?? 0 : 0)
+  }
+
+  const chooseLocation = (nextLocationId: string) => {
+    setLocationId(nextLocationId)
+    setCountedQuantity(item ? balanceFor(item, nextLocationId)?.quantity ?? 0 : 0)
+  }
+
+  const save = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!balance) {
+      setError('This product does not have a balance at the selected location')
+      return
+    }
+    setError('')
+    setSaving(true)
+    const command: CycleCountCommand = {
+      productId,
+      locationId,
+      countedQuantity,
+      reason,
+      actor,
+      expectedVersion: balance.version,
+    }
+    try {
+      await submitCycleCount(command)
+      await onSaved()
+      onClose()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Cycle count could not be saved')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const variance = countedQuantity - (balance?.quantity ?? 0)
+  return (
+    <div className="panel-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.currentTarget === event.target) onClose()
+    }}>
+      <aside className="movement-panel" aria-labelledby="count-title">
+        <header className="panel-header">
+          <div><span className="eyebrow">Control desk / 02</span><h2 id="count-title">Reconcile count</h2></div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Close count panel"><X /></button>
+        </header>
+        <form onSubmit={save}>
+          <label>Product<select value={productId} onChange={(event) => chooseProduct(event.target.value)}>{dashboard.items.map((entry) => <option value={entry.id} key={entry.id}>{entry.sku} — {entry.name}</option>)}</select></label>
+          <label>Location<select value={locationId} onChange={(event) => chooseLocation(event.target.value)}>{dashboard.locations.map((location) => <option value={location.id} key={location.id}>{location.code} — {location.name}</option>)}</select><small>System quantity {balance?.quantity ?? 0} · revision {balance?.version ?? '—'}</small></label>
+          <label>Counted quantity<input type="number" min="0" max="1000000" required value={countedQuantity} onChange={(event) => setCountedQuantity(event.target.valueAsNumber)} /></label>
+          <div className={`variance-preview ${variance < 0 ? 'negative' : variance > 0 ? 'positive' : ''}`}><span>Variance</span><strong>{variance > 0 ? '+' : ''}{variance}</strong><small>{balance?.quantity ?? 0} expected → {countedQuantity} counted</small></div>
+          <label>Reason<input required minLength={3} maxLength={180} value={reason} onChange={(event) => setReason(event.target.value)} /></label>
+          <label>Counted by<input required minLength={2} maxLength={80} value={actor} onChange={(event) => setActor(event.target.value)} /></label>
+          <div className="transaction-note"><Check aria-hidden="true" /><p>The count and balance revision commit together. The previous quantity and signed variance remain in the audit trail.</p></div>
+          {error ? <p className="form-error" role="alert">{error}</p> : null}
+          <div className="panel-actions"><button className="text-button" type="button" onClick={onClose}>Cancel</button><button className="commit-button" type="submit" disabled={saving}>{saving ? 'Reconciling…' : 'Commit count'}<ChevronRight /></button></div>
+        </form>
+      </aside>
+    </div>
+  )
+}
+
 export default function App() {
   const [dashboard, setDashboard] = useState<Dashboard | null>(null)
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState<'all' | 'low'>('all')
-  const [panelOpen, setPanelOpen] = useState(false)
+  const [panel, setPanel] = useState<'movement' | 'count' | null>(null)
   const [error, setError] = useState('')
 
   const load = async (signal?: AbortSignal) => {
@@ -147,6 +227,14 @@ export default function App() {
     })
   }, [dashboard, query, status])
 
+  const activity = useMemo(() => {
+    if (!dashboard) return []
+    return [
+      ...dashboard.movements.map((entry) => ({ type: 'movement' as const, createdAt: entry.createdAt, entry })),
+      ...dashboard.cycleCounts.map((entry) => ({ type: 'count' as const, createdAt: entry.createdAt, entry })),
+    ].sort((left, right) => right.createdAt.localeCompare(left.createdAt)).slice(0, 40)
+  }, [dashboard])
+
   if (!dashboard) {
     return <main className="loading-state"><Boxes aria-hidden="true" /><h1>Stockroom Ledger</h1><p>{error || 'Reading the inventory ledger…'}</p><button type="button" onClick={() => void load()}>Retry</button></main>
   }
@@ -161,7 +249,7 @@ export default function App() {
 
       <main>
         <section className="manifest">
-          <div className="manifest-copy"><span className="eyebrow">Inventory operations / live ledger</span><h1>Every unit.<br /><em>Accounted for.</em></h1><p>Receive, dispatch, and transfer stock with transactional guarantees and a complete movement trail.</p><button className="manifest-action" type="button" onClick={() => setPanelOpen(true)}><PackagePlus />New movement</button></div>
+          <div className="manifest-copy"><span className="eyebrow">Inventory operations / live ledger</span><h1>Every unit.<br /><em>Accounted for.</em></h1><p>Receive, dispatch, transfer, and reconcile stock with transactional guarantees and a complete control trail.</p><div className="manifest-actions"><button className="manifest-action" type="button" onClick={() => setPanel('movement')}><PackagePlus />New movement</button><button className="manifest-action secondary" type="button" onClick={() => setPanel('count')}><ScanLine />Reconcile count</button></div></div>
           <div className="manifest-number"><strong>{dashboard.metrics.totalUnits}</strong><span>units on hand<br />across {dashboard.items.length} tracked SKUs</span><div className="barcode" aria-hidden="true" /></div>
           <dl className="metric-rack"><div><dt>Inventory value</dt><dd>{money.format(dashboard.metrics.inventoryValueCents / 100)}</dd></div><div><dt>Stock health</dt><dd>{healthy}/{dashboard.items.length}</dd><small>SKUs above reorder point</small></div><div className={dashboard.metrics.lowStockItems ? 'warning' : ''}><dt>Requires action</dt><dd>{dashboard.metrics.lowStockItems}</dd><small>low-stock lines</small></div></dl>
         </section>
@@ -178,14 +266,15 @@ export default function App() {
           </div>
 
           <aside className="ledger-area" aria-labelledby="ledger-title">
-            <header className="ledger-head"><span className="section-index">02</span><div><span className="eyebrow">Immutable trail</span><h2 id="ledger-title">Movement ledger</h2></div><span className="ledger-count">{dashboard.movements.length}</span></header>
-            <div className="movement-list">{dashboard.movements.length ? dashboard.movements.map((movement) => <article className="movement" key={movement.id}><div className={`movement-icon ${movement.kind}`}>{movementIcon(movement.kind)}</div><div><header><strong>{movement.productName}</strong><time dateTime={movement.createdAt}>{timestamp.format(new Date(movement.createdAt))}</time></header><p><b>{movement.quantity}</b> units · {movement.fromLocationName ? `${movement.fromLocationName} → ` : ''}{movement.toLocationName ?? 'dispatched'}</p><small>{movement.reason} · {movement.actor}</small></div></article>) : <div className="empty-ledger"><ArrowLeftRight /><strong>No movements yet</strong><p>The first committed transaction will appear here.</p></div>}</div>
-            <footer><span>Atomic writes</span><span>Idempotent API</span><span>Version checks</span></footer>
+            <header className="ledger-head"><span className="section-index">02</span><div><span className="eyebrow">Immutable trail</span><h2 id="ledger-title">Control ledger</h2></div><span className="ledger-count">{activity.length}</span></header>
+            <div className="movement-list">{activity.length ? activity.map((activityItem) => activityItem.type === 'movement' ? <article className="movement" key={activityItem.entry.id}><div className={`movement-icon ${activityItem.entry.kind}`}>{movementIcon(activityItem.entry.kind)}</div><div><header><strong>{activityItem.entry.productName}</strong><time dateTime={activityItem.entry.createdAt}>{timestamp.format(new Date(activityItem.entry.createdAt))}</time></header><p><b>{activityItem.entry.quantity}</b> units · {activityItem.entry.fromLocationName ? `${activityItem.entry.fromLocationName} → ` : ''}{activityItem.entry.toLocationName ?? 'dispatched'}</p><small>{activityItem.entry.reason} · {activityItem.entry.actor}</small></div></article> : <article className="movement" key={activityItem.entry.id}><div className="movement-icon count"><ScanLine aria-hidden="true" /></div><div><header><strong>{activityItem.entry.productName}</strong><time dateTime={activityItem.entry.createdAt}>{timestamp.format(new Date(activityItem.entry.createdAt))}</time></header><p><b>{activityItem.entry.variance > 0 ? '+' : ''}{activityItem.entry.variance}</b> variance · {activityItem.entry.locationName}</p><small>{activityItem.entry.previousQuantity} expected → {activityItem.entry.countedQuantity} counted · {activityItem.entry.actor}</small></div></article>) : <div className="empty-ledger"><ArrowLeftRight /><strong>No activity yet</strong><p>The first committed movement or count will appear here.</p></div>}</div>
+            <footer><span>Atomic writes</span><span>Idempotent API</span><span>Version checks</span><span>Audited counts</span></footer>
           </aside>
         </section>
       </main>
       {error ? <div className="global-error" role="alert">{error}</div> : null}
-      {panelOpen ? <MovementPanel dashboard={dashboard} onClose={() => setPanelOpen(false)} onSaved={() => load()} /> : null}
+      {panel === 'movement' ? <MovementPanel dashboard={dashboard} onClose={() => setPanel(null)} onSaved={() => load()} /> : null}
+      {panel === 'count' ? <CountPanel dashboard={dashboard} onClose={() => setPanel(null)} onSaved={() => load()} /> : null}
     </div>
   )
 }

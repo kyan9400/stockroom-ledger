@@ -40,6 +40,20 @@ export interface Movement {
   createdAt: string
 }
 
+export interface CycleCount {
+  id: string
+  productId: string
+  productName: string
+  locationId: string
+  locationName: string
+  previousQuantity: number
+  countedQuantity: number
+  variance: number
+  reason: string
+  actor: string
+  createdAt: string
+}
+
 export interface Dashboard {
   generatedAt: string
   metrics: {
@@ -51,6 +65,7 @@ export interface Dashboard {
   locations: Location[]
   items: InventoryItem[]
   movements: Movement[]
+  cycleCounts: CycleCount[]
 }
 
 export interface MovementCommand {
@@ -65,3 +80,11 @@ export interface MovementCommand {
   expectedDestinationVersion: number | null
 }
 
+export interface CycleCountCommand {
+  productId: string
+  locationId: string
+  countedQuantity: number
+  reason: string
+  actor: string
+  expectedVersion: number
+}

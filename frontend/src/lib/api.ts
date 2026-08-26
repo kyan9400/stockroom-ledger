@@ -1,4 +1,4 @@
-import type { Dashboard, MovementCommand } from '../types'
+import type { CycleCountCommand, Dashboard, MovementCommand } from '../types'
 
 async function readJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -32,3 +32,15 @@ export async function submitMovement(command: MovementCommand): Promise<void> {
   )
 }
 
+export async function submitCycleCount(command: CycleCountCommand): Promise<void> {
+  await readJson(
+    await fetch('/api/cycle-counts', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': crypto.randomUUID(),
+      },
+      body: JSON.stringify(command),
+    }),
+  )
+}

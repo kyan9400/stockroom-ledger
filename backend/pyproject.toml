@@ -1,6 +1,6 @@
 [project]
 name = "stockroom-ledger"
-version = "1.0.0"
+version = "1.1.0"
 description = "Transactional inventory operations API for Stockroom Ledger."
 requires-python = ">=3.12"
 dependencies = [
