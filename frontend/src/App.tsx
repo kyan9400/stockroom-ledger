@@ -246,6 +246,7 @@ export default function App() {
         <a className="brand" href="/" aria-label="Stockroom Ledger home"><span className="brand-grid" aria-hidden="true"><i /><i /><i /><i /></span><strong>Stockroom<br />Ledger</strong></a>
         <div className="topbar-meta"><span><i /> ledger online</span><a href="/docs" target="_blank">API reference ↗</a><a href="https://github.com/kyan9400/stockroom-ledger" target="_blank" rel="noreferrer">Source ↗</a></div>
       </header>
+      <div className="sandbox-banner" role="note"><strong>Public sandbox</strong><span>Seeded demo data can reset when the Vercel instance scales down. The Docker deployment uses durable storage.</span></div>
 
       <main>
         <section className="manifest">

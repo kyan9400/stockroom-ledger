@@ -89,6 +89,12 @@ jobs:
       - name: Build image
         run: docker build --tag stockroom-ledger:test .
 
+      - name: Build Vercel image
+        run: docker build --file Dockerfile.vercel --tag stockroom-ledger:vercel .
+
+      - name: Inspect Vercel runtime user
+        run: test "$(docker run --rm --entrypoint=id stockroom-ledger:vercel -u)" != "0"
+
       - name: Inspect runtime user
         run: test "$(docker run --rm --entrypoint=id stockroom-ledger:test -u)" != "0"
 
@@ -117,4 +123,3 @@ jobs:
       - name: Remove smoke-test container
         if: always()
         run: docker rm --force stockroom-smoke || true
-
