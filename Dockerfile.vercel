@@ -7,7 +7,7 @@ RUN pnpm install --frozen-lockfile
 COPY frontend/ ./
 RUN pnpm build
 
-FROM python:3.13-slim AS api-builder
+FROM python:3.14-slim AS api-builder
 
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1
@@ -16,7 +16,7 @@ COPY backend/pyproject.toml ./
 COPY backend/src ./src
 RUN python -m pip wheel --wheel-dir /wheels .
 
-FROM python:3.13-slim AS runner
+FROM python:3.14-slim AS runner
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
